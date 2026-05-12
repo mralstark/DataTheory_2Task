@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Анализатор Энтропии Составных Систем</title>
+    <style>
+        :root {
+            --bg-color: #f4f4f9;
+            --text-color: #333;
+            --border-color: #ccc;
+            --accent-color: #0056b3;
+            --error-color: #dc3545;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            background: #fff;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            max-width: 800px;
+            width: 100%;
+        }
+        h1, h2 {
+            margin-top: 0;
+            color: var(--text-color);
+        }
+        label {
+            font-weight: bold;
+            display: block;
+            margin-bottom: 8px;
+        }
+        textarea {
+            width: 100%;
+            height: 150px;
+            padding: 10px;
+            font-family: monospace;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        .help-text {
+            font-size: 0.85em;
+            color: #666;
+            margin-bottom: 15px;
+        }
+        button {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background-color: #004494;
+        }
+        #error-output {
+            color: var(--error-color);
+            margin-top: 15px;
+            font-weight: bold;
+        }
+        .results-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .metric-card {
+            background: #f8f9fa;
+            border: 1px solid var(--border-color);
+            padding: 15px;
+            border-radius: 4px;
+        }
+        .metric-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: var(--accent-color);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+        th, td {
+            border: 1px solid var(--border-color);
+            padding: 5px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Расчет энтропии сложной системы</h1>
+    
+    <label for="matrixInput">Матрица совместных вероятностей P(X, Y):</label>
+    <div class="help-text">Вставьте данные (разделители: пробел, табуляция или запятая). Строки — состояния системы X, столбцы — состояния системы Y. Дробная часть отделяется точкой.</div>
+    <textarea id="matrixInput" placeholder="0.1 0.2 0.0&#10;0.2 0.1 0.1&#10;0.0 0.1 0.2"></textarea>
+    
+    <button onclick="processData()">Вычислить метрики</button>
+    
+    <div id="error-output"></div>
+    
+    <div id="results" style="display: none;">
+        <h2>Результаты анализа</h2>
+        <div id="normalization-warning" style="color: #856404; background-color: #fff3cd; padding: 10px; border: 1px solid #ffeeba; border-radius: 4px; display: none; margin-bottom: 15px;"></div>
+        
+        <div class="results-grid">
+            <div class="metric-card">
+                <div>Совместная энтропия H(X,Y)</div>
+                <div class="metric-value" id="val-hxy">0.0000 бит</div>
+            </div>
+            <div class="metric-card">
+                <div>Взаимная информация I(X;Y)</div>
+                <div class="metric-value" id="val-ixy">0.0000 бит</div>
+            </div>
+            <div class="metric-card">
+                <div>Энтропия H(X)</div>
+                <div class="metric-value" id="val-hx">0.0000 бит</div>
+            </div>
+            <div class="metric-card">
+                <div>Энтропия H(Y)</div>
+                <div class="metric-value" id="val-hy">0.0000 бит</div>
+            </div>
+            <div class="metric-card">
+                <div>Условная энтропия H(X|Y)</div>
+                <div class="metric-value" id="val-hx-y">0.0000 бит</div>
+            </div>
+            <div class="metric-card">
+                <div>Условная энтропия H(Y|X)</div>
+                <div class="metric-value" id="val-hy-x">0.0000 бит</div>
+            </div>
+        </div>
+
+        <h3 style="margin-top: 20px;">Маргинальные распределения</h3>
+        <div style="display: flex; gap: 20px;">
+            <div style="flex: 1;" id="marginal-x"></div>
+            <div style="flex: 1;" id="marginal-y"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    /**
+     * Вычисляет энтропию Шеннона для массива вероятностей
+     * @param {number[]} probabilities - массив вероятностей
+     * @returns {number} энтропия в битах
+     */
+    function calcEntropy(probabilities) {
+        return probabilities.reduce((entropy, p) => {
+            if (p <= 0) return entropy;
+            return entropy - (p * Math.log2(p));
+        }, 0);
+    }
+
+    function processData() {
+        const input = document.getElementById('matrixInput').value.trim();
+        const errorOut = document.getElementById('error-output');
+        const resultsDiv = document.getElementById('results');
+        const warningDiv = document.getElementById('normalization-warning');
+        
+        errorOut.textContent = '';
+        resultsDiv.style.display = 'none';
+        warningDiv.style.display = 'none';
+
+        if (!input) {
+            errorOut.textContent = 'Ошибка: Матрица пуста.';
+            return;
+        }
+
+        // Парсинг матрицы
+        const rows = input.split('\n').filter(row => row.trim() !== '');
+        const matrix = [];
+        let colsCount = -1;
+
+        for (let i = 0; i < rows.length; i++) {
+            // Разделение по запятой, табуляции или произвольному числу пробелов
+            const cells = rows[i].trim().split(/[,\t\s]+/).map(Number);
+            
+            if (cells.some(isNaN)) {
+                errorOut.textContent = `Ошибка парсинга в строке ${i + 1}: найдены нечисловые значения.`;
+                return;
+            }
+            if (cells.some(val => val < 0)) {
+                errorOut.textContent = `Ошибка логики в строке ${i + 1}: вероятности не могут быть отрицательными.`;
+                return;
+            }
+
+            if (colsCount === -1) {
+                colsCount = cells.length;
+            } else if (cells.length !== colsCount) {
+                errorOut.textContent = `Ошибка размерности: строка ${i + 1} содержит ${cells.length} элементов, ожидалось ${colsCount}.`;
+                return;
+            }
+            matrix.push(cells);
+        }
+
+        const M = matrix.length;
+        const N = colsCount;
+
+        // Вычисление суммы и нормализация
+        let sum = 0;
+        for (let i = 0; i < M; i++) {
+            for (let j = 0; j < N; j++) {
+                sum += matrix[i][j];
+            }
+        }
+
+        if (sum === 0) {
+            errorOut.textContent = 'Ошибка: Сумма всех элементов матрицы равна нулю.';
+            return;
+        }
+
+        const TOLERANCE = 1e-4;
+        if (Math.abs(sum - 1) > TOLERANCE) {
+            warningDiv.textContent = `Внимание: Сумма вероятностей равна ${sum.toFixed(6)}, а не 1. Произведена автоматическая нормализация матрицы.`;
+            warningDiv.style.display = 'block';
+            for (let i = 0; i < M; i++) {
+                for (let j = 0; j < N; j++) {
+                    matrix[i][j] /= sum;
+                }
+            }
+        }
+
+        // Вычисление маргинальных вероятностей
+        const pX = new Array(M).fill(0);
+        const pY = new Array(N).fill(0);
+        const jointP = []; // плоский массив для совместной энтропии
+
+        for (let i = 0; i < M; i++) {
+            for (let j = 0; j < N; j++) {
+                const p = matrix[i][j];
+                pX[i] += p;
+                pY[j] += p;
+                jointP.push(p);
+            }
+        }
+
+        // Вычисление метрик
+        const H_XY = calcEntropy(jointP);
+        const H_X = calcEntropy(pX);
+        const H_Y = calcEntropy(pY);
+        const H_X_cond_Y = H_XY - H_Y;
+        const H_Y_cond_X = H_XY - H_X;
+        const I_XY = H_X + H_Y - H_XY;
+
+        // Вывод результатов
+        document.getElementById('val-hxy').textContent = H_XY.toFixed(4) + ' бит';
+        document.getElementById('val-hx').textContent = H_X.toFixed(4) + ' бит';
+        document.getElementById('val-hy').textContent = H_Y.toFixed(4) + ' бит';
+        // Исключаем отрицательные значения из-за float precision (-0.0000)
+        document.getElementById('val-hx-y').textContent = Math.max(0, H_X_cond_Y).toFixed(4) + ' бит';
+        document.getElementById('val-hy-x').textContent = Math.max(0, H_Y_cond_X).toFixed(4) + ' бит';
+        document.getElementById('val-ixy').textContent = Math.max(0, I_XY).toFixed(4) + ' бит';
+
+        // Рендер маргинальных таблиц
+        renderTable('marginal-x', 'X', pX);
+        renderTable('marginal-y', 'Y', pY);
+
+        resultsDiv.style.display = 'block';
+    }
+
+    function renderTable(containerId, varName, data) {
+        let html = `<table><thead><tr><th>Состояние ${varName}</th><th>P(${varName})</th></tr></thead><tbody>`;
+        data.forEach((p, idx) => {
+            html += `<tr><td>${varName}<sub>${idx + 1}</sub></td><td>${p.toFixed(4)}</td></tr>`;
+        });
+        html += `</tbody></table>`;
+        document.getElementById(containerId).innerHTML = html;
+    }
+</script>
+</body>
+</html>
